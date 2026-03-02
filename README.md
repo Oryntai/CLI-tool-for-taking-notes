@@ -1,11 +1,10 @@
-# Notes CLI
+﻿# Notes CLI
 
 Local-first, cross-platform command-line notes app with SQLite by default and optional JSON storage.
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0A7EA4)
 ![Storage](https://img.shields.io/badge/storage-SQLite%20%2B%20JSON-4C9A2A)
-![Tests](https://img.shields.io/badge/tests-21%20passed-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Why This Project
@@ -15,9 +14,10 @@ Local-first, cross-platform command-line notes app with SQLite by default and op
 - Fully offline, no external services
 - Fast CRUD operations and search
 - Tags, pinned notes, archive mode
-- JSON import/export for backup and migration
+- JSON import/export + backup/restore
+- Config management and diagnostics commands
 - Works on Windows, macOS, Linux
-- Ready for CI and Docker deployment
+- CI-ready with lint, tests, type checks, coverage, and security audit
 
 ## Core Features
 
@@ -30,7 +30,9 @@ Local-first, cross-platform command-line notes app with SQLite by default and op
 - Archive/unarchive and pin/unpin
 - Safe delete with confirmation (`--yes` to skip)
 - Export/import notes to JSON with duplicate handling (`skip|overwrite`)
-- `notes info` for backend/path/stats overview
+- `notes backup` / `notes restore` for portable backups
+- `notes info`, `notes recent`, `notes doctor` for operational visibility
+- `notes config show|get|set|reset` for runtime config management
 
 ## Quick Demo
 
@@ -40,10 +42,9 @@ notes add "Draft architecture notes" --title "Design" --tags dev,ideas --pin
 notes add --stdin --title "Inbox" << EOF
 Need to benchmark SQLite queries.
 EOF
-notes list
-notes search sqlite --format json
-notes view 1
-notes export --out backup/notes.json
+notes recent
+notes doctor
+notes backup --out backup/notes.json.gz --compress
 ```
 
 ## Installation
@@ -56,16 +57,16 @@ python -m pip install -e ".[dev]"
 
 You can run the app as `notes` or `python -m notes_cli`.
 
-### Run Quality Checks
+### Quality Checks
 
 ```bash
 ruff check .
-pytest
+mypy notes_cli
+pytest --cov=notes_cli --cov-report=term-missing --cov-fail-under=70
+pip-audit
 ```
 
 ## Docker Deployment
-
-The repository includes a production-ready `Dockerfile`.
 
 ### Build Image
 
@@ -98,6 +99,9 @@ Container defaults:
 notes --help
 notes init --backend sqlite|json [--path PATH]
 notes info [--format text|json]
+notes recent [--limit N] [--format table|json]
+notes doctor [--format text|json]
+
 notes add "body" [--title TITLE] [--tags a,b] [--pin]
 notes add --title TITLE --body BODY
 notes add --stdin
@@ -110,8 +114,16 @@ notes unarchive <id>
 notes pin <id>
 notes unpin <id>
 notes delete <id> [--yes]
+
 notes export --out notes.json
 notes import --in notes.json [--mode skip|overwrite]
+notes backup --out backup.json[.gz] [--compress]
+notes restore --in backup.json[.gz] [--mode skip|overwrite] [--yes]
+
+notes config show [--format text|json]
+notes config get backend|data_dir|home_dir|config_file|config_exists
+notes config set backend|data_dir <value> [--init-storage]
+notes config reset [--yes]
 ```
 
 ## Storage Layout
@@ -133,27 +145,31 @@ SQLite keeps tags as JSON text in the `notes.tags` column.
 
 ```text
 .
-├── notes_cli/
-│   ├── cli.py          # Typer commands
-│   ├── storage.py      # SQLite + JSON backends
-│   ├── editor.py       # External editor workflow
-│   ├── formatting.py   # Table/text rendering
-│   ├── config.py       # Runtime config and paths
-│   └── models.py       # Note model
-├── tests/
-│   └── test_cli.py     # Integration-style CLI tests
-├── .github/workflows/
-│   └── ci.yml          # Lint + tests on Ubuntu/Windows
-└── Dockerfile
+|-- notes_cli/
+|   |-- cli.py
+|   |-- storage.py
+|   |-- editor.py
+|   |-- formatting.py
+|   |-- config.py
+|   `-- models.py
+|-- tests/
+|   `-- test_cli.py
+|-- .github/workflows/
+|   `-- ci.yml
+|-- Dockerfile
+|-- pyproject.toml
+`-- README.md
 ```
 
 ## CI
 
-GitHub Actions pipeline runs:
+GitHub Actions pipeline includes:
 
-- `ruff check .`
-- `pytest`
-- matrix on `ubuntu-latest` and `windows-latest`
+- Lint (`ruff`)
+- Type checking (`mypy`)
+- Tests + coverage gate (`pytest-cov`, fail-under 70%)
+- Docker image build
+- Dependency security audit (`pip-audit`, non-blocking)
 
 ## License
 

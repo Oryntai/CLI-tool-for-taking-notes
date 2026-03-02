@@ -12,7 +12,9 @@ python -m pip install -e ".[dev]"
 
 ```bash
 ruff check .
+mypy notes_cli
 pytest
+pip-audit
 ```
 
 ## Contribution Guidelines
@@ -27,4 +29,4 @@ pytest
 
 - Use a focused PR scope
 - Describe the user-visible impact
-- Include test evidence (`pytest`, `ruff`)
+- Include test evidence (`pytest`, `ruff`, `mypy`)

@@ -247,3 +247,93 @@ def test_commands_fail_before_init(tmp_path: Path) -> None:
     result = runner.invoke(app, ["list"], env=env)
     assert result.exit_code == 1
     assert "Run `notes init` first" in result.output
+
+
+def test_recent_command_limit(tmp_path: Path, backend: str) -> None:
+    env = init_env(tmp_path / "home", backend)
+    run_cli(env, ["add", "note one"])
+    run_cli(env, ["add", "note two"])
+    run_cli(env, ["add", "note three"])
+
+    result = run_cli(env, ["recent", "--limit", "2", "--format", "json"])
+    assert result.exit_code == 0
+    notes = json.loads(result.stdout)
+    assert len(notes) == 2
+    assert notes[0]["id"] == 3
+    assert notes[1]["id"] == 2
+
+
+def test_backup_and_restore_gzip(tmp_path: Path, backend: str) -> None:
+    source_env = init_env(tmp_path / "source-home", backend)
+    target_env = init_env(tmp_path / "target-home", backend)
+
+    run_cli(source_env, ["add", "alpha", "--title", "A"])
+    run_cli(source_env, ["add", "beta", "--title", "B", "--pin"])
+
+    backup_path = tmp_path / "backup" / "notes-backup.json.gz"
+    backup_result = run_cli(
+        source_env,
+        ["backup", "--out", str(backup_path), "--compress"],
+    )
+    assert backup_result.exit_code == 0
+    assert backup_path.exists()
+
+    restore_result = run_cli(target_env, ["restore", "--in", str(backup_path), "--mode", "skip"])
+    assert restore_result.exit_code == 0
+    assert "inserted=2" in restore_result.output
+
+    listed = run_cli(target_env, ["list", "--format", "json"])
+    notes = json.loads(listed.stdout)
+    assert len(notes) == 2
+
+
+def test_config_commands(tmp_path: Path) -> None:
+    env = {"NOTES_CLI_HOME": str(tmp_path / "home")}
+    configured_data_dir = tmp_path / "custom-data"
+
+    show_before = runner.invoke(app, ["config", "show", "--format", "json"], env=env)
+    assert show_before.exit_code == 0
+    assert json.loads(show_before.stdout)["config_exists"] is False
+
+    set_backend = runner.invoke(
+        app,
+        ["config", "set", "backend", "json", "--init-storage"],
+        env=env,
+    )
+    assert set_backend.exit_code == 0
+
+    set_dir = runner.invoke(
+        app,
+        ["config", "set", "data_dir", str(configured_data_dir), "--init-storage"],
+        env=env,
+    )
+    assert set_dir.exit_code == 0
+
+    get_backend = runner.invoke(app, ["config", "get", "backend"], env=env)
+    assert get_backend.exit_code == 0
+    assert get_backend.stdout.strip() == "json"
+
+    run_result = runner.invoke(app, ["add", "configured note"], env=env)
+    assert run_result.exit_code == 0
+
+    reset_result = runner.invoke(app, ["config", "reset", "--yes"], env=env)
+    assert reset_result.exit_code == 0
+
+    show_after = runner.invoke(app, ["config", "show", "--format", "json"], env=env)
+    assert show_after.exit_code == 0
+    assert json.loads(show_after.stdout)["config_exists"] is False
+
+
+def test_doctor_command(tmp_path: Path, backend: str) -> None:
+    pre_env = {"NOTES_CLI_HOME": str(tmp_path / "pre-home")}
+    pre_result = runner.invoke(app, ["doctor", "--format", "json"], env=pre_env)
+    assert pre_result.exit_code == 0
+    pre_checks = json.loads(pre_result.stdout)
+    assert any(row["status"] == "WARN" for row in pre_checks)
+
+    env = init_env(tmp_path / "home", backend)
+    run_cli(env, ["add", "health test"])
+    result = run_cli(env, ["doctor", "--format", "json"])
+    assert result.exit_code == 0
+    checks = json.loads(result.stdout)
+    assert not any(row["status"] == "FAIL" for row in checks)

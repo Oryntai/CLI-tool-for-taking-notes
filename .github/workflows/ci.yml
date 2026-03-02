@@ -30,8 +30,11 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Type check
+        run: mypy notes_cli
+
       - name: Test
-        run: pytest
+        run: pytest --cov=notes_cli --cov-report=term-missing --cov-fail-under=70
 
   docker:
     runs-on: ubuntu-latest
@@ -41,3 +44,23 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t notes-cli:ci .
+
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Security audit
+        run: pip-audit
