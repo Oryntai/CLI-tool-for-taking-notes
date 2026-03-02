@@ -19,7 +19,7 @@ def truncate(text: str, width: int) -> str:
     return text[: width - 3] + "..."
 
 
-def _render_table(headers: list[str], rows: Iterable[list[str]]) -> str:
+def render_table(headers: list[str], rows: Iterable[list[str]]) -> str:
     rows_list = [headers, *list(rows)]
     widths = [max(len(row[idx]) for row in rows_list) for idx in range(len(headers))]
 
@@ -52,7 +52,7 @@ def notes_table(notes: list[Note]) -> str:
             ]
         )
 
-    return _render_table(headers, rows)
+    return render_table(headers, rows)
 
 
 def note_detail(note: Note) -> str:
@@ -69,3 +69,7 @@ def note_detail(note: Note) -> str:
         note.body,
     ]
     return "\n".join(lines)
+
+
+def key_value_table(rows: Iterable[tuple[str, str]]) -> str:
+    return render_table(["key", "value"], [[key, value] for key, value in rows])

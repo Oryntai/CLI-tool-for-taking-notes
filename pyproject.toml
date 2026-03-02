@@ -30,7 +30,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
+  "pytest-cov>=5.0",
   "ruff>=0.6",
+  "mypy>=1.10",
+  "pip-audit>=2.7",
 ]
 
 [project.scripts]
@@ -49,3 +52,19 @@ ignore = ["B008"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
+
+[tool.coverage.run]
+source = ["notes_cli"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+
+[tool.mypy]
+python_version = "3.11"
+pretty = true
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+strict_optional = true

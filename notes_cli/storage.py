@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -118,10 +119,14 @@ class SQLiteBackend:
     def is_initialized(self) -> bool:
         return self.db_path.exists()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def _row_to_note(self, row: sqlite3.Row) -> Note:
         tags_raw = row["tags"] or "[]"
@@ -168,7 +173,10 @@ class SQLiteBackend:
                 ),
             )
             conn.commit()
-            note_id = int(cursor.lastrowid)
+            row_id = cursor.lastrowid
+            if row_id is None:
+                raise RuntimeError("Failed to obtain inserted note id.")
+            note_id = int(row_id)
 
         return self.get_note(note_id)  # type: ignore[return-value]
 
@@ -199,7 +207,7 @@ class SQLiteBackend:
             where.append("archived = 1")
 
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-        query = f"SELECT * FROM notes {where_sql} ORDER BY updated_at DESC"
+        query = f"SELECT * FROM notes {where_sql} ORDER BY updated_at DESC, id DESC"
 
         with self._connect() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
@@ -219,7 +227,7 @@ class SQLiteBackend:
                       lower(coalesce(title, '')) LIKE ?
                       OR lower(body) LIKE ?
                   )
-                ORDER BY updated_at DESC
+                ORDER BY updated_at DESC, id DESC
                 """,
                 (needle, needle),
             ).fetchall()
@@ -436,7 +444,7 @@ class JSONBackend:
             notes = [note for note in notes if note.archived]
 
         notes = [note for note in notes if _match_tags(note.tags, tags)]
-        notes.sort(key=lambda note: note.updated_at, reverse=True)
+        notes.sort(key=lambda note: (note.updated_at, note.id), reverse=True)
         return notes[: max(limit, 0)]
 
     def search_notes(self, *, query: str, tags: list[str]) -> list[Note]:
@@ -452,7 +460,7 @@ class JSONBackend:
                 filtered.append(note)
 
         filtered = [note for note in filtered if _match_tags(note.tags, tags)]
-        filtered.sort(key=lambda note: note.updated_at, reverse=True)
+        filtered.sort(key=lambda note: (note.updated_at, note.id), reverse=True)
         return filtered
 
     def update_note(

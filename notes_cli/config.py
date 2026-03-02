@@ -28,6 +28,14 @@ class RuntimeConfig:
     def json_path(self) -> Path:
         return self.data_dir / "notes.json"
 
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "backend": self.backend,
+            "data_dir": str(self.data_dir),
+            "home_dir": str(self.home_dir),
+            "config_file": str(self.config_file),
+        }
+
 
 def get_home_dir() -> Path:
     env_home = os.getenv("NOTES_CLI_HOME")
@@ -47,6 +55,18 @@ def _default_config() -> RuntimeConfig:
     return RuntimeConfig(backend="sqlite", data_dir=home_dir, home_dir=home_dir)
 
 
+def _payload_to_runtime(payload: dict[str, str], *, fallback: RuntimeConfig) -> RuntimeConfig:
+    backend_raw = payload.get("backend", fallback.backend)
+    backend: BackendType = "json" if backend_raw == "json" else "sqlite"
+    data_dir_raw = payload.get("data_dir")
+    data_dir = Path(data_dir_raw).expanduser().resolve() if data_dir_raw else fallback.data_dir
+    return RuntimeConfig(backend=backend, data_dir=data_dir, home_dir=fallback.home_dir)
+
+
+def _runtime_to_payload(cfg: RuntimeConfig) -> dict[str, str]:
+    return {"backend": cfg.backend, "data_dir": str(cfg.data_dir)}
+
+
 def load_config() -> RuntimeConfig:
     default = _default_config()
     config_file = default.config_file
@@ -54,24 +74,45 @@ def load_config() -> RuntimeConfig:
         return default
 
     payload = json.loads(config_file.read_text(encoding="utf-8"))
-    backend_raw = payload.get("backend", "sqlite")
-    backend: BackendType = "json" if backend_raw == "json" else "sqlite"
-    data_dir_raw = payload.get("data_dir")
-    data_dir = Path(data_dir_raw).expanduser().resolve() if data_dir_raw else default.data_dir
+    if not isinstance(payload, dict):
+        return default
 
-    return RuntimeConfig(backend=backend, data_dir=data_dir, home_dir=default.home_dir)
+    safe_payload = {
+        "backend": str(payload.get("backend", default.backend)),
+        "data_dir": str(payload.get("data_dir", default.data_dir)),
+    }
+    return _payload_to_runtime(safe_payload, fallback=default)
 
 
 def save_config(backend: BackendType, data_dir: Path) -> RuntimeConfig:
     base = _default_config()
     cfg = RuntimeConfig(backend=backend, data_dir=data_dir.resolve(), home_dir=base.home_dir)
     cfg.home_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"backend": cfg.backend, "data_dir": str(cfg.data_dir)}
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    payload = _runtime_to_payload(cfg)
     cfg.config_file.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     return cfg
+
+
+def config_exists() -> bool:
+    return _default_config().config_file.exists()
+
+
+def reset_config() -> RuntimeConfig:
+    default = _default_config()
+    if default.config_file.exists():
+        default.config_file.unlink()
+    return default
+
+
+def read_raw_config() -> dict[str, str | bool]:
+    cfg = load_config()
+    payload: dict[str, str | bool] = dict(cfg.as_dict())
+    payload["config_exists"] = config_exists()
+    return payload
 
 
 def parse_backend(raw: str) -> BackendType:
