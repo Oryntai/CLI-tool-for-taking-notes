@@ -91,6 +91,14 @@ def _parse_mode(mode: str) -> str:
     return mode_clean
 
 
+def _parse_archived_mode(archived: bool, all_notes: bool) -> ListMode:
+    if all_notes:
+        return "all"
+    if archived:
+        return "archived"
+    return "active"
+
+
 @app.command()
 def init(
     backend: str = typer.Option("sqlite", "--backend", help="sqlite or json"),
@@ -290,7 +298,7 @@ def list_notes(
     if fmt not in {"table", "json"}:
         _fail("--format must be one of: table, json.")
 
-    archived_mode: ListMode = "all" if all_notes else "archived" if archived else "active"
+    archived_mode = _parse_archived_mode(archived, all_notes)
 
     notes = backend.list_notes(
         limit=max(limit, 0),
@@ -304,6 +312,56 @@ def list_notes(
         return
 
     typer.echo(notes_table(notes))
+
+
+@app.command()
+def tags(
+    limit: int = typer.Option(20, "--limit", help="Max tags to return"),
+    archived: bool = typer.Option(False, "--archived", help="Only archived notes"),
+    all_notes: bool = typer.Option(False, "--all", help="Include archived and active"),
+    format: str = typer.Option("table", "--format", help="table or json"),
+) -> None:
+    """Show most used tags."""
+    backend = _require_backend()
+
+    fmt = format.strip().lower()
+    if fmt not in {"table", "json"}:
+        _fail("--format must be one of: table, json.")
+
+    archived_mode = _parse_archived_mode(archived, all_notes)
+    notes = backend.export_notes()
+    if archived_mode == "active":
+        notes = [note for note in notes if not note.archived]
+    elif archived_mode == "archived":
+        notes = [note for note in notes if note.archived]
+
+    counts: dict[str, int] = {}
+    labels: dict[str, str] = {}
+    for note in notes:
+        for raw_tag in note.tags:
+            key = raw_tag.casefold()
+            counts[key] = counts.get(key, 0) + 1
+            labels.setdefault(key, raw_tag)
+
+    rows = [
+        (labels[key], count)
+        for key, count in sorted(
+            counts.items(),
+            key=lambda item: (-item[1], labels[item[0]].casefold()),
+        )
+    ][: max(limit, 0)]
+
+    if fmt == "json":
+        typer.echo(
+            json.dumps(
+                [{"tag": tag, "count": count} for tag, count in rows],
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+
+    typer.echo(render_table(["tag", "count"], [[tag, str(count)] for tag, count in rows]))
 
 
 @app.command()

@@ -84,6 +84,34 @@ def test_search_with_tag_filter(tmp_path: Path, backend: str) -> None:
     assert len(tagged) == 1
 
 
+def test_tags_command_modes_and_limit(tmp_path: Path, backend: str) -> None:
+    env = init_env(tmp_path / "home", backend)
+
+    run_cli(env, ["add", "n1", "--tags", "work,home"])
+    run_cli(env, ["add", "n2", "--tags", "work"])
+    run_cli(env, ["add", "n3", "--tags", "ideas"])
+    run_cli(env, ["archive", "2"])
+
+    active_result = run_cli(env, ["tags", "--format", "json"])
+    assert active_result.exit_code == 0
+    active_rows = json.loads(active_result.stdout)
+    assert active_rows == [
+        {"tag": "home", "count": 1},
+        {"tag": "ideas", "count": 1},
+        {"tag": "work", "count": 1},
+    ]
+
+    all_result = run_cli(env, ["tags", "--all", "--limit", "1", "--format", "json"])
+    assert all_result.exit_code == 0
+    all_rows = json.loads(all_result.stdout)
+    assert all_rows == [{"tag": "work", "count": 2}]
+
+    archived_result = run_cli(env, ["tags", "--archived", "--format", "json"])
+    assert archived_result.exit_code == 0
+    archived_rows = json.loads(archived_result.stdout)
+    assert archived_rows == [{"tag": "work", "count": 1}]
+
+
 def test_archive_and_unarchive(tmp_path: Path, backend: str) -> None:
     env = init_env(tmp_path / "home", backend)
 

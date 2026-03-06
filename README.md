@@ -26,6 +26,7 @@ Local-first, cross-platform command-line notes app with SQLite by default and op
 - List/filter by tags, pinned, archived/all
 - View full note in text or JSON
 - Search by substring in title/body + tag filters
+- Tag analytics with usage frequency (`notes tags`)
 - Edit via flags or external editor (`$EDITOR`, fallback `nano/notepad`)
 - Archive/unarchive and pin/unpin
 - Safe delete with confirmation (`--yes` to skip)
@@ -43,6 +44,7 @@ notes add --stdin --title "Inbox" << EOF
 Need to benchmark SQLite queries.
 EOF
 notes recent
+notes tags --all --limit 5
 notes doctor
 notes backup --out backup/notes.json.gz --compress
 ```
@@ -106,6 +108,7 @@ notes add "body" [--title TITLE] [--tags a,b] [--pin]
 notes add --title TITLE --body BODY
 notes add --stdin
 notes list [--limit N] [--tag TAG] [--pinned] [--archived|--all] [--format table|json]
+notes tags [--limit N] [--archived|--all] [--format table|json]
 notes view <id> [--format text|json]
 notes search <query> [--tag TAG] [--format table|json]
 notes edit <id> [--title TITLE] [--body BODY] [--tags a,b]
