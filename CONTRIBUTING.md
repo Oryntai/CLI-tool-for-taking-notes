@@ -23,6 +23,7 @@ pip-audit
 - Preserve offline-first behavior
 - Add tests for behavioral changes
 - Update README when user-facing commands change
+- Update ROADMAP/CHANGELOG for notable user-facing changes
 - Keep code cross-platform (Windows/macOS/Linux)
 
 ## Pull Requests

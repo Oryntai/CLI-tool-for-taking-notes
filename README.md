@@ -1,41 +1,16 @@
-﻿# Notes CLI
+# Notes CLI
 
-Local-first, cross-platform command-line notes app with SQLite by default and optional JSON storage.
+Fast local-first command-line notes app with SQLite and JSON backends.
 
-![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
+[![CI](https://github.com/Oryntai/CLI-tool-for-taking-notes/actions/workflows/ci.yml/badge.svg)](https://github.com/Oryntai/CLI-tool-for-taking-notes/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-3776AB?logo=python&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-0A7EA4)
 ![Storage](https://img.shields.io/badge/storage-SQLite%20%2B%20JSON-4C9A2A)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-## Why This Project
+## Demo
 
-`notes` is designed for speed and reliability in terminal workflows:
-
-- Fully offline, no external services
-- Fast CRUD operations and search
-- Tags, pinned notes, archive mode
-- JSON import/export + backup/restore
-- Config management and diagnostics commands
-- Works on Windows, macOS, Linux
-- CI-ready with lint, tests, type checks, coverage, and security audit
-
-## Core Features
-
-- `notes init` with `sqlite` or `json` backend
-- Add note from argument, `--body`, or `--stdin`
-- List/filter by tags, pinned, archived/all
-- View full note in text or JSON
-- Search by substring in title/body + tag filters
-- Tag analytics with usage frequency (`notes tags`)
-- Edit via flags or external editor (`$EDITOR`, fallback `nano/notepad`)
-- Archive/unarchive and pin/unpin
-- Safe delete with confirmation (`--yes` to skip)
-- Export/import notes to JSON with duplicate handling (`skip|overwrite`)
-- `notes backup` / `notes restore` for portable backups
-- `notes info`, `notes recent`, `notes doctor` for operational visibility
-- `notes config show|get|set|reset` for runtime config management
-
-## Quick Demo
+Quick terminal flow:
 
 ```bash
 notes init
@@ -43,57 +18,56 @@ notes add "Draft architecture notes" --title "Design" --tags dev,ideas --pin
 notes add --stdin --title "Inbox" << EOF
 Need to benchmark SQLite queries.
 EOF
-notes recent
-notes tags --all --limit 5
-notes doctor
+notes list
+notes search benchmark
 notes backup --out backup/notes.json.gz --compress
 ```
 
-## Installation
+For a richer terminal recording, see `docs/demo-plan.md` and publish an asciinema/GIF.
 
-### Local Development Install
+## Why This Project
+
+`notes` is built for developers who want notes that are:
+
+- Offline by default
+- Fast to query from a terminal
+- Easy to back up and restore
+- Portable across Windows, macOS, and Linux
+
+No external service, no account, no lock-in.
+
+## Features
+
+- `notes init` with `sqlite` or `json`
+- Add from argument, `--body`, or `--stdin`
+- Filter/list by tags, pinned, archived/all
+- Search in title/body with optional tag filters
+- Edit in flags or external editor (`$EDITOR`)
+- Safe delete with confirmation (`--yes` to skip)
+- JSON export/import and backup/restore
+- Diagnostics and config commands (`info`, `recent`, `doctor`, `config`)
+
+## Quick Start
+
+### Install for development
 
 ```bash
 python -m pip install -e ".[dev]"
 ```
 
-You can run the app as `notes` or `python -m notes_cli`.
-
-### Quality Checks
+### Initialize storage
 
 ```bash
-ruff check .
-mypy notes_cli
-pytest --cov=notes_cli --cov-report=term-missing --cov-fail-under=70
-pip-audit
+notes init
 ```
 
-## Docker Deployment
-
-### Build Image
+### Add and read notes
 
 ```bash
-docker build -t notes-cli .
+notes add "Hello terminal notes" --tags demo
+notes list
+notes view 1
 ```
-
-### Initialize Storage
-
-```bash
-docker run --rm -it -v notes_data:/data notes-cli init
-```
-
-### Create and List Notes
-
-```bash
-docker run --rm -it -v notes_data:/data notes-cli add "Hello from Docker" --tags demo
-docker run --rm -it -v notes_data:/data notes-cli list
-```
-
-Container defaults:
-
-- data directory: `/data`
-- environment variable: `NOTES_CLI_HOME=/data`
-- non-root runtime user
 
 ## Command Reference
 
@@ -129,20 +103,39 @@ notes config set backend|data_dir <value> [--init-storage]
 notes config reset [--yes]
 ```
 
+## Daily Workflows
+
+### Inbox capture
+
+```bash
+notes add --stdin --title "Inbox" --tags inbox
+```
+
+### Prioritized list
+
+```bash
+notes list --pinned
+notes pin 12
+```
+
+### Backup before risky edits
+
+```bash
+notes backup --out backups/notes-$(date +%Y%m%d).json.gz --compress
+```
+
 ## Storage Layout
 
-Default storage root:
+Default root:
 
 - Linux/macOS: `~/.local/share/notes-cli/`
 - Windows: `%APPDATA%\\notes-cli\\`
 
-Files in storage directory:
+Files:
 
-- `config.json` for selected backend and data path
-- `notes.db` for SQLite backend
-- `notes.json` for JSON backend
-
-SQLite keeps tags as JSON text in the `notes.tags` column.
+- `config.json` runtime config
+- `notes.db` SQLite backend
+- `notes.json` JSON backend
 
 ## Project Structure
 
@@ -160,20 +153,43 @@ SQLite keeps tags as JSON text in the `notes.tags` column.
 |-- .github/workflows/
 |   `-- ci.yml
 |-- Dockerfile
-|-- pyproject.toml
+|-- CHANGELOG.md
+|-- ROADMAP.md
 `-- README.md
 ```
 
-## CI
+## Quality Checks
 
-GitHub Actions pipeline includes:
+```bash
+ruff check .
+mypy notes_cli
+pytest --cov=notes_cli --cov-report=term-missing --cov-fail-under=70
+pip-audit
+```
 
-- Lint (`ruff`)
-- Type checking (`mypy`)
-- Tests + coverage gate (`pytest-cov`, fail-under 70%)
-- Docker image build
-- Dependency security audit (`pip-audit`, non-blocking)
+## Docker
+
+```bash
+docker build -t notes-cli .
+docker run --rm -it -v notes_data:/data notes-cli init
+docker run --rm -it -v notes_data:/data notes-cli add "Hello from Docker"
+docker run --rm -it -v notes_data:/data notes-cli list
+```
+
+## Contributing
+
+See `CONTRIBUTING.md` for setup and guidelines.
+
+## Community
+
+- Code of Conduct: `CODE_OF_CONDUCT.md`
+- Security policy: `SECURITY.md`
+
+## Roadmap and Releases
+
+- Planned features: `ROADMAP.md`
+- Release history: `CHANGELOG.md`
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See `LICENSE`.
