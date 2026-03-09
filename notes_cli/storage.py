@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import tempfile
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from .models import Note, now_iso
 
@@ -90,7 +92,9 @@ class NotesBackend(Protocol):
 
     def export_notes(self) -> list[Note]: ...
 
-    def import_notes(self, notes: list[dict], *, mode: ImportMode) -> tuple[int, int, int]: ...
+    def import_notes(
+        self, notes: list[dict[str, Any]], *, mode: ImportMode
+    ) -> tuple[int, int, int]: ...
 
 
 class SQLiteBackend:
@@ -112,6 +116,18 @@ class SQLiteBackend:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_notes_archived_updated
+                ON notes (archived, updated_at DESC, id DESC)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_notes_pinned_updated
+                ON notes (pinned, updated_at DESC, id DESC)
                 """
             )
             conn.commit()
@@ -178,7 +194,10 @@ class SQLiteBackend:
                 raise RuntimeError("Failed to obtain inserted note id.")
             note_id = int(row_id)
 
-        return self.get_note(note_id)  # type: ignore[return-value]
+        inserted = self.get_note(note_id)
+        if inserted is None:
+            raise RuntimeError("Failed to read inserted note.")
+        return inserted
 
     def get_note(self, note_id: int) -> Note | None:
         with self._connect() as conn:
@@ -345,7 +364,9 @@ class SQLiteBackend:
             )
             conn.commit()
 
-    def import_notes(self, notes: list[dict], *, mode: ImportMode) -> tuple[int, int, int]:
+    def import_notes(
+        self, notes: list[dict[str, Any]], *, mode: ImportMode
+    ) -> tuple[int, int, int]:
         inserted = 0
         updated = 0
         skipped = 0
@@ -385,14 +406,21 @@ class JSONBackend:
         if not self.json_path.exists():
             return {"next_id": 1, "notes": []}
 
-        payload = json.loads(self.json_path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(self.json_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Failed to read JSON storage '{self.json_path}': {exc}") from exc
+
+        if not isinstance(payload, dict):
+            raise ValueError("JSON storage root must be an object.")
+
         payload.setdefault("next_id", 1)
         payload.setdefault("notes", [])
         return payload
 
     def _save(self, payload: dict) -> None:
         serialized = json.dumps(payload, ensure_ascii=False, indent=2)
-        self.json_path.write_text(serialized, encoding="utf-8")
+        _atomic_write_text(self.json_path, serialized)
 
     def _to_notes(self, payload: dict) -> list[Note]:
         return [Note.from_dict(item) for item in payload.get("notes", [])]
@@ -523,7 +551,9 @@ class JSONBackend:
         notes.sort(key=lambda note: note.id)
         return notes
 
-    def import_notes(self, notes: list[dict], *, mode: ImportMode) -> tuple[int, int, int]:
+    def import_notes(
+        self, notes: list[dict[str, Any]], *, mode: ImportMode
+    ) -> tuple[int, int, int]:
         payload = self._load()
         existing_by_id = {int(item["id"]): item for item in payload["notes"]}
 
@@ -552,3 +582,16 @@ class JSONBackend:
         self._save(payload)
 
         return inserted, updated, skipped
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f"{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(content)
+        tmp_path.replace(path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)

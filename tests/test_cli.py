@@ -1,12 +1,24 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
+import runpy
+import subprocess
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
+from notes_cli import editor
 from notes_cli.cli import app
+from notes_cli.formatting import (
+    key_value_table,
+    note_detail,
+    notes_table,
+    parse_tags,
+    render_table,
+    truncate,
+)
+from notes_cli.models import Note
 
 runner = CliRunner()
 
@@ -235,14 +247,16 @@ def test_import_invalid_payload_fails_cleanly(tmp_path: Path, backend: str) -> N
 
     bad_path = tmp_path / "bad.json"
     bad_path.write_text(
-        json.dumps([
-            {
-                "id": 1,
-                "title": "broken",
-                "body": "",
-                "tags": ["x"],
-            }
-        ]),
+        json.dumps(
+            [
+                {
+                    "id": 1,
+                    "title": "broken",
+                    "body": "",
+                    "tags": ["x"],
+                }
+            ]
+        ),
         encoding="utf-8",
     )
 
@@ -365,3 +379,107 @@ def test_doctor_command(tmp_path: Path, backend: str) -> None:
     assert result.exit_code == 0
     checks = json.loads(result.stdout)
     assert not any(row["status"] == "FAIL" for row in checks)
+
+
+def test_invalid_config_json_falls_back_to_defaults(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir(parents=True)
+    (home / "config.json").write_text("{broken", encoding="utf-8")
+
+    env = {"NOTES_CLI_HOME": str(home)}
+    result = runner.invoke(app, ["config", "show", "--format", "json"], env=env)
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["backend"] == "sqlite"
+    assert payload["config_exists"] is True
+
+
+def test_corrupted_json_storage_fails_cleanly(tmp_path: Path) -> None:
+    env = init_env(tmp_path / "home", "json")
+    run_cli(env, ["add", "hello"])
+
+    storage_file = Path(env["NOTES_CLI_HOME"]) / "notes.json"
+    storage_file.write_text("{broken", encoding="utf-8")
+
+    result = run_cli(env, ["list"])
+    assert result.exit_code == 1
+    assert "Storage is unreadable" in result.output
+
+
+def test_formatting_helpers_cover_edge_cases() -> None:
+    assert parse_tags("a, b,,c") == ["a", "b", "c"]
+    assert truncate("abcdef", 3) == "..."
+    assert truncate("abcdef", 2) == ".."
+
+    table = render_table(["k", "v"], [["a", "b"]])
+    assert "k | v" in table
+
+    note = Note(id=1, title=None, body="body", tags=["x"], pinned=True, archived=False)
+    listing = notes_table([note])
+    assert "(no title)" in listing
+    assert "pinned" in listing
+
+    detail = note_detail(note)
+    assert "ID: 1" in detail
+    assert "body" in detail
+
+    kv = key_value_table([("backend", "sqlite")])
+    assert "backend" in kv
+
+
+def test_editor_parse_and_errors() -> None:
+    title, tags, body = editor._parse("title: T\ntags: a,b\n---\nhello")
+    assert title == "T"
+    assert tags == ["a", "b"]
+    assert body == "hello"
+
+    with pytest.raises(ValueError, match="divider"):
+        editor._parse("title: T\nno divider")
+
+
+def test_edit_note_in_editor_flow(monkeypatch: pytest.MonkeyPatch) -> None:
+    note = Note(id=1, title="Old", body="Body", tags=["x"])
+    seen_tmp_path: Path | None = None
+
+    def fake_run(cmd: list[str], check: bool) -> None:
+        del check
+        nonlocal seen_tmp_path
+        seen_tmp_path = Path(cmd[-1])
+        seen_tmp_path.write_text("title: New\ntags: a,b\n---\nUpdated body\n", encoding="utf-8")
+
+    monkeypatch.setattr(editor, "_editor_command", lambda: "dummy-editor")
+    monkeypatch.setattr(editor.subprocess, "run", fake_run)
+
+    title, tags, body = editor.edit_note_in_editor(note)
+    assert title == "New"
+    assert tags == ["a", "b"]
+    assert body == "Updated body"
+    assert seen_tmp_path is not None
+    assert not seen_tmp_path.exists()
+
+
+def test_edit_note_in_editor_subprocess_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    note = Note(id=1, title="Old", body="Body", tags=["x"])
+
+    def raise_error(cmd: list[str], check: bool) -> None:
+        del cmd, check
+        raise subprocess.CalledProcessError(1, ["dummy-editor"])
+
+    monkeypatch.setattr(editor, "_editor_command", lambda: "dummy-editor")
+    monkeypatch.setattr(editor.subprocess, "run", raise_error)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        editor.edit_note_in_editor(note)
+
+
+def test_main_module_executes_entrypoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = {"value": False}
+
+    def fake_main() -> None:
+        called["value"] = True
+
+    import notes_cli.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "main", fake_main)
+    runpy.run_module("notes_cli.__main__", run_name="__main__")
+    assert called["value"] is True

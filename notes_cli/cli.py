@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import gzip
 import json
@@ -27,7 +27,7 @@ from .formatting import (
     truncate,
 )
 from .models import now_iso
-from .storage import MISSING, JSONBackend, ListMode, NotesBackend, SQLiteBackend
+from .storage import MISSING, ImportMode, JSONBackend, ListMode, NotesBackend, SQLiteBackend
 
 app = typer.Typer(help="Local notes CLI with SQLite/JSON backends.")
 config_app = typer.Typer(help="Manage notes CLI runtime configuration.")
@@ -54,6 +54,12 @@ def _require_backend() -> NotesBackend:
     backend, _, _ = _backend_from_config()
     if not backend.is_initialized():
         _fail("Storage is not initialized. Run `notes init` first.")
+
+    try:
+        backend.export_notes()
+    except (OSError, ValueError) as exc:
+        _fail(f"Storage is unreadable: {exc}. Run `notes doctor` to diagnose.")
+
     return backend
 
 
@@ -70,7 +76,7 @@ def _read_json_payload(path: Path) -> object:
         raise ValueError(f"Invalid JSON input: {exc}") from exc
 
 
-def _extract_note_list(payload: object) -> list[dict]:
+def _extract_note_list(payload: object) -> list[dict[str, Any]]:
     if isinstance(payload, dict) and "notes" in payload:
         payload = payload["notes"]
 
@@ -81,14 +87,14 @@ def _extract_note_list(payload: object) -> list[dict]:
         if not isinstance(item, dict):
             raise ValueError(f"Import item #{idx} is not an object.")
 
-    return cast(list[dict], payload)
+    return cast(list[dict[str, Any]], payload)
 
 
-def _parse_mode(mode: str) -> str:
+def _parse_mode(mode: str) -> ImportMode:
     mode_clean = mode.strip().lower()
     if mode_clean not in {"skip", "overwrite"}:
         _fail("--mode must be one of: skip, overwrite.")
-    return mode_clean
+    return cast(ImportMode, mode_clean)
 
 
 def _parse_archived_mode(archived: bool, all_notes: bool) -> ListMode:
@@ -576,7 +582,7 @@ def import_notes(
     try:
         payload = _read_json_payload(in_file)
         notes_payload = _extract_note_list(payload)
-        inserted, updated, skipped = backend.import_notes(notes_payload, mode=mode_clean)  # type: ignore[arg-type]
+        inserted, updated, skipped = backend.import_notes(notes_payload, mode=mode_clean)
     except ValueError as exc:
         _fail(str(exc))
 
@@ -608,7 +614,7 @@ def restore_notes(
     try:
         payload = _read_json_payload(in_file)
         notes_payload = _extract_note_list(payload)
-        inserted, updated, skipped = backend.import_notes(notes_payload, mode=mode_clean)  # type: ignore[arg-type]
+        inserted, updated, skipped = backend.import_notes(notes_payload, mode=mode_clean)
     except ValueError as exc:
         _fail(str(exc))
 

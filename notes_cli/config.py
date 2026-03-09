@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -73,7 +74,11 @@ def load_config() -> RuntimeConfig:
     if not config_file.exists():
         return default
 
-    payload = json.loads(config_file.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(config_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return default
+
     if not isinstance(payload, dict):
         return default
 
@@ -90,10 +95,7 @@ def save_config(backend: BackendType, data_dir: Path) -> RuntimeConfig:
     cfg.home_dir.mkdir(parents=True, exist_ok=True)
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     payload = _runtime_to_payload(cfg)
-    cfg.config_file.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    _atomic_write_json(cfg.config_file, payload)
     return cfg
 
 
@@ -119,4 +121,17 @@ def parse_backend(raw: str) -> BackendType:
     normalized = raw.strip().lower()
     if normalized not in {"sqlite", "json"}:
         raise ValueError("Backend must be 'sqlite' or 'json'.")
-    return normalized  # type: ignore[return-value]
+    return "json" if normalized == "json" else "sqlite"
+
+
+def _atomic_write_json(path: Path, payload: dict[str, str]) -> None:
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+    fd, tmp_name = tempfile.mkstemp(prefix=f"{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(serialized)
+        tmp_path.replace(path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
